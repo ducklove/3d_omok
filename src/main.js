@@ -86,9 +86,10 @@ const DEFAULT_SETTINGS = {
   winRule: "freestyle",
   timeLimit: 300,
   theme: "aurora",
-  autoRotate: true,
+  autoRotate: false,
   sound: true,
   cameraMode: "perspective",
+  cameraRefined: false,
 };
 
 const DEFAULT_STATS = {
@@ -395,38 +396,67 @@ class AudioEngine {
     return this.context;
   }
 
-  tone(frequency, duration, type, gainValue) {
+  pulse({ frequency, duration, type = "sine", gainValue = 0.04, when = 0, attack = 0.01, endFrequency = null }) {
     const ctx = this.ensure();
     if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const now = ctx.currentTime + when;
     osc.type = type;
-    osc.frequency.value = frequency;
-    gain.gain.value = gainValue;
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    osc.frequency.setValueAtTime(frequency, now);
+    if (endFrequency && endFrequency > 0) {
+      osc.frequency.exponentialRampToValueAtTime(endFrequency, now + duration);
+    }
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(gainValue, now + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
+    osc.start(now);
+    osc.stop(now + duration);
   }
 
   ui() {
-    this.tone(520, 0.09, "triangle", 0.05);
+    this.pulse({ frequency: 560, duration: 0.08, type: "triangle", gainValue: 0.055 });
+    this.pulse({ frequency: 840, duration: 0.07, type: "sine", gainValue: 0.03, when: 0.045 });
   }
 
   move(player) {
-    this.tone(player === 1 ? 240 : 360, 0.16, "sine", 0.06);
-    this.tone(player === 1 ? 480 : 640, 0.14, "triangle", 0.03);
+    this.pulse({
+      frequency: player === 1 ? 210 : 260,
+      endFrequency: player === 1 ? 122 : 156,
+      duration: 0.18,
+      type: "sine",
+      gainValue: 0.08,
+      attack: 0.004,
+    });
+    this.pulse({
+      frequency: player === 1 ? 720 : 920,
+      endFrequency: player === 1 ? 510 : 640,
+      duration: 0.09,
+      type: "triangle",
+      gainValue: 0.028,
+      when: 0.02,
+      attack: 0.002,
+    });
   }
 
   hint() {
-    this.tone(660, 0.18, "triangle", 0.05);
+    this.pulse({ frequency: 660, duration: 0.12, type: "triangle", gainValue: 0.045 });
+    this.pulse({ frequency: 880, duration: 0.12, type: "triangle", gainValue: 0.04, when: 0.08 });
+    this.pulse({ frequency: 1120, duration: 0.16, type: "sine", gainValue: 0.03, when: 0.16 });
   }
 
   win() {
-    this.tone(440, 0.18, "triangle", 0.07);
-    window.setTimeout(() => this.tone(660, 0.2, "triangle", 0.06), 80);
-    window.setTimeout(() => this.tone(880, 0.28, "triangle", 0.05), 160);
+    this.pulse({ frequency: 392, duration: 0.18, type: "triangle", gainValue: 0.07 });
+    this.pulse({ frequency: 523.25, duration: 0.2, type: "triangle", gainValue: 0.06, when: 0.08 });
+    this.pulse({ frequency: 659.25, duration: 0.24, type: "triangle", gainValue: 0.055, when: 0.16 });
+    this.pulse({ frequency: 783.99, duration: 0.34, type: "sine", gainValue: 0.04, when: 0.24 });
+  }
+
+  lose() {
+    this.pulse({ frequency: 280, endFrequency: 180, duration: 0.18, type: "triangle", gainValue: 0.05 });
+    this.pulse({ frequency: 220, endFrequency: 110, duration: 0.24, type: "sine", gainValue: 0.045, when: 0.08 });
   }
 }
 
@@ -481,6 +511,10 @@ class PrismOmok3D {
     };
 
     this.settings = loadJson(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
+    if (!this.settings.cameraRefined) {
+      this.settings.autoRotate = false;
+      this.settings.cameraRefined = true;
+    }
     this.stats = loadJson(STORAGE_KEYS.stats, DEFAULT_STATS);
     this.audio = new AudioEngine();
     this.audio.setEnabled(this.settings.sound);
@@ -544,15 +578,20 @@ class PrismOmok3D {
     this.scene.add(this.world);
     this.world.add(this.boardGroup, this.stoneGroup, this.effectGroup, this.coordGroup);
 
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 300);
+    this.camera = new THREE.PerspectiveCamera(34, 1, 0.1, 300);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
+    this.controls.enablePan = false;
     this.controls.minDistance = 10;
     this.controls.maxDistance = 54;
-    this.controls.maxPolarAngle = Math.PI * 0.48;
-    this.controls.minPolarAngle = 0.1;
-    this.controls.target.set(0, 0.3, 0);
+    this.controls.maxPolarAngle = 0.66;
+    this.controls.minPolarAngle = 0.18;
+    this.controls.minAzimuthAngle = -Math.PI / 8;
+    this.controls.maxAzimuthAngle = Math.PI / 8;
+    this.controls.rotateSpeed = 0.55;
+    this.controls.zoomSpeed = 0.85;
+    this.controls.target.set(0, 0.24, 0);
 
     this.shared.stoneGeometry = new THREE.SphereGeometry(0.72, 48, 36);
     this.shared.ringGeometry = new THREE.TorusGeometry(0.92, 0.05, 24, 72);
@@ -815,6 +854,8 @@ class PrismOmok3D {
       this.settings = { ...this.settings, ...snapshot.settings };
       this.audio.setEnabled(this.settings.sound);
       this.cameraMode = this.settings.cameraMode || "perspective";
+      this.settings.autoRotate = false;
+      this.settings.cameraRefined = true;
       this.applySettingsToControls();
       this.applyTheme(true);
       this.board = createBoard(this.settings.boardSize);
@@ -939,12 +980,13 @@ class PrismOmok3D {
     this.boardSize = this.settings.boardSize;
     this.spacing = this.boardSize <= 11 ? 2.1 : this.boardSize <= 15 ? 1.65 : 1.34;
     this.boardHalf = ((this.boardSize - 1) * this.spacing) / 2;
+    this.surfaceHalf = this.boardHalf + this.spacing * 0.82;
     this.boardTopY = 0.26;
     this.interactionPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.boardTopY);
     this.controls.maxDistance = Math.max(28, this.boardHalf * 4);
     this.controls.minDistance = Math.max(10, this.boardHalf * 1.1);
 
-    const boardWidth = this.boardHalf * 2 + this.spacing * 1.6;
+    const boardWidth = this.surfaceHalf * 2;
     const baseGeometry = new THREE.BoxGeometry(boardWidth, 0.52, boardWidth);
     const baseMaterial = new THREE.MeshStandardMaterial({
       color: this.theme.boardWoodB,
@@ -981,6 +1023,7 @@ class PrismOmok3D {
     trim.position.y = this.boardTopY + 0.04;
 
     this.boardGroup.add(base, top, trim);
+    this.addBoardGrid();
     this.boardTexture = topMaterial.map;
 
     this.addBoardCoordinates();
@@ -1013,44 +1056,101 @@ class PrismOmok3D {
       ctx.stroke();
     }
 
-    const border = 180;
-    const playable = canvas.width - border * 2;
-    const cell = playable / (this.boardSize - 1);
-    ctx.strokeStyle = this.theme.boardLine;
-    ctx.lineWidth = 4;
+    const vignette = ctx.createRadialGradient(
+      canvas.width * 0.5,
+      canvas.height * 0.5,
+      canvas.width * 0.15,
+      canvas.width * 0.5,
+      canvas.height * 0.5,
+      canvas.width * 0.65,
+    );
+    vignette.addColorStop(0, "transparent");
+    vignette.addColorStop(1, "rgba(0, 0, 0, 0.16)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    for (let i = 0; i < this.boardSize; i += 1) {
-      const pos = border + i * cell;
-      ctx.beginPath();
-      ctx.moveTo(border, pos);
-      ctx.lineTo(canvas.width - border, pos);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(pos, border);
-      ctx.lineTo(pos, canvas.width - border);
-      ctx.stroke();
-    }
-
-    const starPoints = this.boardSize === 19 ? [3, 9, 15] : this.boardSize === 15 ? [3, 7, 11] : [3, 5, 7];
-    ctx.fillStyle = this.theme.starPoint;
-    for (const gx of starPoints) {
-      for (const gy of starPoints) {
-        const px = border + gx * cell;
-        const py = border + gy * cell;
-        ctx.beginPath();
-        ctx.arc(px, py, 13, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    ctx.strokeStyle = `${this.theme.accent}66`;
-    ctx.lineWidth = 10;
-    ctx.strokeRect(border * 0.76, border * 0.76, canvas.width - border * 1.52, canvas.height - border * 1.52);
+    ctx.strokeStyle = `${this.theme.accent}44`;
+    ctx.lineWidth = 12;
+    ctx.strokeRect(112, 112, canvas.width - 224, canvas.height - 224);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
     return texture;
+  }
+
+  addBoardGrid() {
+    const lineThickness = Math.max(0.055, this.spacing * 0.045);
+    const lineHeight = 0.028;
+    const playableSize = this.boardHalf * 2;
+    const lineY = this.boardTopY + lineHeight * 0.5 + 0.004;
+    const lineMaterial = new THREE.MeshStandardMaterial({
+      color: this.theme.boardLine,
+      roughness: 0.34,
+      metalness: 0.14,
+    });
+    const accentMaterial = new THREE.MeshStandardMaterial({
+      color: this.theme.starPoint,
+      emissive: this.theme.accent2,
+      emissiveIntensity: 0.08,
+      roughness: 0.25,
+      metalness: 0.1,
+    });
+    const horizontalGeometry = new THREE.BoxGeometry(playableSize + lineThickness, lineHeight, lineThickness);
+    const verticalGeometry = new THREE.BoxGeometry(lineThickness, lineHeight, playableSize + lineThickness);
+
+    for (let i = 0; i < this.boardSize; i += 1) {
+      const horizontal = new THREE.Mesh(horizontalGeometry, lineMaterial);
+      horizontal.position.set(0, lineY, this.gridToWorld(0, i).z);
+      horizontal.receiveShadow = true;
+
+      const vertical = new THREE.Mesh(verticalGeometry, lineMaterial);
+      vertical.position.set(this.gridToWorld(i, 0).x, lineY, 0);
+      vertical.receiveShadow = true;
+
+      this.boardGroup.add(horizontal, vertical);
+    }
+
+    const frameThickness = lineThickness * 1.5;
+    const frameHeight = lineHeight * 1.6;
+    const outer = playableSize + this.spacing * 0.38;
+    const frameLongGeometry = new THREE.BoxGeometry(outer, frameHeight, frameThickness);
+    const frameShortGeometry = new THREE.BoxGeometry(frameThickness, frameHeight, outer);
+    const frameMaterial = new THREE.MeshStandardMaterial({
+      color: this.theme.accent,
+      emissive: this.theme.accent,
+      emissiveIntensity: 0.08,
+      roughness: 0.35,
+      metalness: 0.35,
+    });
+    const frameOffset = outer * 0.5;
+    const frameY = this.boardTopY + frameHeight * 0.5 + 0.006;
+    const frames = [
+      new THREE.Mesh(frameLongGeometry, frameMaterial),
+      new THREE.Mesh(frameLongGeometry, frameMaterial),
+      new THREE.Mesh(frameShortGeometry, frameMaterial),
+      new THREE.Mesh(frameShortGeometry, frameMaterial),
+    ];
+    frames[0].position.set(0, frameY, -frameOffset);
+    frames[1].position.set(0, frameY, frameOffset);
+    frames[2].position.set(-frameOffset, frameY, 0);
+    frames[3].position.set(frameOffset, frameY, 0);
+    for (const frame of frames) {
+      frame.receiveShadow = true;
+      this.boardGroup.add(frame);
+    }
+
+    const starPoints = this.boardSize === 19 ? [3, 9, 15] : this.boardSize === 15 ? [3, 7, 11] : [3, 5, 7];
+    const starGeometry = new THREE.CylinderGeometry(lineThickness * 1.3, lineThickness * 1.3, 0.06, 24);
+    for (const gx of starPoints) {
+      for (const gy of starPoints) {
+        const star = new THREE.Mesh(starGeometry, accentMaterial);
+        const world = this.gridToWorld(gx, gy);
+        star.position.set(world.x, this.boardTopY + 0.038, world.z);
+        star.castShadow = true;
+        this.boardGroup.add(star);
+      }
+    }
   }
 
   addBoardCoordinates() {
@@ -1107,6 +1207,10 @@ class PrismOmok3D {
   }
 
   worldToGrid(point) {
+    const pickMargin = this.spacing * 0.38;
+    if (Math.abs(point.x) > this.boardHalf + pickMargin || Math.abs(point.z) > this.boardHalf + pickMargin) {
+      return null;
+    }
     const x = Math.round((point.x + this.boardHalf) / this.spacing);
     const y = Math.round((point.z + this.boardHalf) / this.spacing);
     if (!isInside(this.boardSize, x, y)) return null;
@@ -1141,11 +1245,15 @@ class PrismOmok3D {
   }
 
   updateCameraPose(immediate = false) {
-    const target = new THREE.Vector3(0, 0.25, 0);
-    const perspective = new THREE.Vector3(this.boardHalf * 0.94, this.boardHalf * 1.32 + 7, this.boardHalf * 1.06);
+    const target = new THREE.Vector3(0, 0.22, 0);
+    const perspective = new THREE.Vector3(
+      this.boardHalf * 0.34 + 1.8,
+      this.boardHalf * 2.6 + 5.5,
+      this.boardHalf * 0.72 + 3.5,
+    );
     const top = new THREE.Vector3(0, this.boardHalf * 2.35 + 8, 0.001);
     const destination = this.cameraMode === "top" ? top : perspective;
-    this.dom.cameraLabel.textContent = this.cameraMode === "top" ? "Top View" : "Perspective";
+    this.dom.cameraLabel.textContent = this.cameraMode === "top" ? "Top View" : "Gentle Perspective";
 
     if (immediate) {
       this.camera.position.copy(destination);
@@ -1179,6 +1287,7 @@ class PrismOmok3D {
   toggleSound() {
     this.settings.sound = !this.settings.sound;
     this.audio.setEnabled(this.settings.sound);
+    if (this.settings.sound) this.audio.ui();
     this.dom.soundButton.textContent = this.settings.sound ? "사운드 ON" : "사운드 OFF";
     this.persistSettings();
   }
@@ -1613,6 +1722,7 @@ class PrismOmok3D {
   handleTimeLoss(loser) {
     if (this.winner || this.draw) return;
     this.winner = -loser;
+    this.audio.lose();
     this.finishGame();
     this.updateUi();
     this.notify("시간 종료", `${loser === 1 ? "흑" : "백"}의 시간이 모두 소진되었습니다.`);
@@ -1764,7 +1874,7 @@ class PrismOmok3D {
     const delta = Math.min(0.05, this.clock.getDelta());
 
     this.controls.autoRotate = this.settings.autoRotate && !this.isReplay;
-    this.controls.autoRotateSpeed = 0.4;
+    this.controls.autoRotateSpeed = 0.08;
     this.controls.update();
     this.updateHover();
     this.tickClocks(delta);
