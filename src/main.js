@@ -86,10 +86,8 @@ const DEFAULT_SETTINGS = {
   winRule: "freestyle",
   timeLimit: 300,
   theme: "aurora",
-  autoRotate: false,
   sound: true,
   cameraMode: "perspective",
-  cameraRefined: false,
 };
 
 const DEFAULT_STATS = {
@@ -377,6 +375,7 @@ class AudioEngine {
   constructor() {
     this.enabled = true;
     this.context = null;
+    this.noiseBuffer = null;
   }
 
   setEnabled(enabled) {
@@ -394,6 +393,19 @@ class AudioEngine {
       this.context.resume();
     }
     return this.context;
+  }
+
+  getNoiseBuffer() {
+    const ctx = this.ensure();
+    if (!ctx) return null;
+    if (this.noiseBuffer) return this.noiseBuffer;
+    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.18), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    this.noiseBuffer = buffer;
+    return buffer;
   }
 
   pulse({ frequency, duration, type = "sine", gainValue = 0.04, when = 0, attack = 0.01, endFrequency = null }) {
@@ -421,24 +433,62 @@ class AudioEngine {
     this.pulse({ frequency: 840, duration: 0.07, type: "sine", gainValue: 0.03, when: 0.045 });
   }
 
-  move(player) {
-    this.pulse({
-      frequency: player === 1 ? 210 : 260,
-      endFrequency: player === 1 ? 122 : 156,
-      duration: 0.18,
-      type: "sine",
-      gainValue: 0.08,
-      attack: 0.004,
-    });
-    this.pulse({
-      frequency: player === 1 ? 720 : 920,
-      endFrequency: player === 1 ? 510 : 640,
-      duration: 0.09,
-      type: "triangle",
-      gainValue: 0.028,
-      when: 0.02,
-      attack: 0.002,
-    });
+  move() {
+    const ctx = this.ensure();
+    const noiseBuffer = this.getNoiseBuffer();
+    if (!ctx || !noiseBuffer) return;
+    const now = ctx.currentTime;
+
+    const bodyOsc = ctx.createOscillator();
+    const bodyGain = ctx.createGain();
+    const bodyFilter = ctx.createBiquadFilter();
+    bodyOsc.type = "triangle";
+    bodyOsc.frequency.setValueAtTime(190, now);
+    bodyOsc.frequency.exponentialRampToValueAtTime(120, now + 0.1);
+    bodyFilter.type = "lowpass";
+    bodyFilter.frequency.setValueAtTime(900, now);
+    bodyGain.gain.setValueAtTime(0.0001, now);
+    bodyGain.gain.exponentialRampToValueAtTime(0.14, now + 0.004);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    bodyOsc.connect(bodyFilter);
+    bodyFilter.connect(bodyGain);
+    bodyGain.connect(ctx.destination);
+    bodyOsc.start(now);
+    bodyOsc.stop(now + 0.13);
+
+    const knockOsc = ctx.createOscillator();
+    const knockGain = ctx.createGain();
+    const knockFilter = ctx.createBiquadFilter();
+    knockOsc.type = "sine";
+    knockOsc.frequency.setValueAtTime(460, now);
+    knockOsc.frequency.exponentialRampToValueAtTime(180, now + 0.028);
+    knockFilter.type = "bandpass";
+    knockFilter.frequency.setValueAtTime(720, now);
+    knockFilter.Q.value = 1.1;
+    knockGain.gain.setValueAtTime(0.0001, now);
+    knockGain.gain.exponentialRampToValueAtTime(0.065, now + 0.002);
+    knockGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+    knockOsc.connect(knockFilter);
+    knockFilter.connect(knockGain);
+    knockGain.connect(ctx.destination);
+    knockOsc.start(now);
+    knockOsc.stop(now + 0.032);
+
+    const noiseSource = ctx.createBufferSource();
+    const noiseFilter = ctx.createBiquadFilter();
+    const noiseGain = ctx.createGain();
+    noiseSource.buffer = noiseBuffer;
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.setValueAtTime(1450, now);
+    noiseFilter.Q.value = 0.7;
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.018, now + 0.002);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.022);
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.03);
   }
 
   hint() {
@@ -471,7 +521,6 @@ class PrismOmok3D {
       ruleSelect: qs("#rule-select"),
       timeSelect: qs("#time-select"),
       themeSelect: qs("#theme-select"),
-      autorotateToggle: qs("#autorotate-toggle"),
       newGameButton: qs("#new-game-button"),
       undoButton: qs("#undo-button"),
       redoButton: qs("#redo-button"),
@@ -511,10 +560,6 @@ class PrismOmok3D {
     };
 
     this.settings = loadJson(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
-    if (!this.settings.cameraRefined) {
-      this.settings.autoRotate = false;
-      this.settings.cameraRefined = true;
-    }
     this.stats = loadJson(STORAGE_KEYS.stats, DEFAULT_STATS);
     this.audio = new AudioEngine();
     this.audio.setEnabled(this.settings.sound);
@@ -813,10 +858,6 @@ class PrismOmok3D {
       this.applyTheme();
       this.persistSettings();
     });
-    this.dom.autorotateToggle.addEventListener("change", () => {
-      this.settings.autoRotate = this.dom.autorotateToggle.checked;
-      this.persistSettings();
-    });
 
     window.addEventListener("keydown", (event) => {
       if (event.target instanceof HTMLSelectElement) return;
@@ -838,7 +879,6 @@ class PrismOmok3D {
     this.dom.ruleSelect.value = this.settings.winRule;
     this.dom.timeSelect.value = String(this.settings.timeLimit);
     this.dom.themeSelect.value = this.settings.theme;
-    this.dom.autorotateToggle.checked = this.settings.autoRotate;
     this.dom.soundButton.textContent = this.settings.sound ? "사운드 ON" : "사운드 OFF";
   }
 
@@ -854,8 +894,6 @@ class PrismOmok3D {
       this.settings = { ...this.settings, ...snapshot.settings };
       this.audio.setEnabled(this.settings.sound);
       this.cameraMode = this.settings.cameraMode || "perspective";
-      this.settings.autoRotate = false;
-      this.settings.cameraRefined = true;
       this.applySettingsToControls();
       this.applyTheme(true);
       this.board = createBoard(this.settings.boardSize);
@@ -1001,28 +1039,15 @@ class PrismOmok3D {
     const topGeometry = new THREE.PlaneGeometry(boardWidth - 0.1, boardWidth - 0.1);
     const topMaterial = new THREE.MeshStandardMaterial({
       map: this.createBoardTexture(),
-      roughness: 0.58,
-      metalness: 0.12,
+      roughness: 0.72,
+      metalness: 0.04,
     });
     const top = new THREE.Mesh(topGeometry, topMaterial);
     top.rotation.x = -Math.PI / 2;
     top.position.y = this.boardTopY;
     top.receiveShadow = true;
 
-    const trim = new THREE.Mesh(
-      new THREE.TorusGeometry(boardWidth * 0.36, 0.08, 24, 90),
-      new THREE.MeshStandardMaterial({
-        color: this.theme.accent,
-        emissive: this.theme.accent,
-        emissiveIntensity: 0.08,
-        roughness: 0.3,
-        metalness: 0.5,
-      }),
-    );
-    trim.rotation.x = Math.PI / 2;
-    trim.position.y = this.boardTopY + 0.04;
-
-    this.boardGroup.add(base, top, trim);
+    this.boardGroup.add(base, top);
     this.addBoardGrid();
     this.boardTexture = topMaterial.map;
 
@@ -1069,9 +1094,11 @@ class PrismOmok3D {
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.strokeStyle = `${this.theme.accent}44`;
-    ctx.lineWidth = 12;
-    ctx.strokeRect(112, 112, canvas.width - 224, canvas.height - 224);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
+    for (let i = 0; i < 24; i += 1) {
+      const y = 120 + i * 72;
+      ctx.fillRect(96, y, canvas.width - 192, 2);
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -1080,21 +1107,19 @@ class PrismOmok3D {
   }
 
   addBoardGrid() {
-    const lineThickness = Math.max(0.055, this.spacing * 0.045);
-    const lineHeight = 0.028;
+    const lineThickness = Math.max(0.038, this.spacing * 0.028);
+    const lineHeight = 0.012;
     const playableSize = this.boardHalf * 2;
-    const lineY = this.boardTopY + lineHeight * 0.5 + 0.004;
+    const lineY = this.boardTopY + lineHeight * 0.5 + 0.002;
     const lineMaterial = new THREE.MeshStandardMaterial({
       color: this.theme.boardLine,
-      roughness: 0.34,
-      metalness: 0.14,
+      roughness: 0.66,
+      metalness: 0.04,
     });
-    const accentMaterial = new THREE.MeshStandardMaterial({
+    const starMaterial = new THREE.MeshStandardMaterial({
       color: this.theme.starPoint,
-      emissive: this.theme.accent2,
-      emissiveIntensity: 0.08,
-      roughness: 0.25,
-      metalness: 0.1,
+      roughness: 0.4,
+      metalness: 0.05,
     });
     const horizontalGeometry = new THREE.BoxGeometry(playableSize + lineThickness, lineHeight, lineThickness);
     const verticalGeometry = new THREE.BoxGeometry(lineThickness, lineHeight, playableSize + lineThickness);
@@ -1111,17 +1136,15 @@ class PrismOmok3D {
       this.boardGroup.add(horizontal, vertical);
     }
 
-    const frameThickness = lineThickness * 1.5;
-    const frameHeight = lineHeight * 1.6;
-    const outer = playableSize + this.spacing * 0.38;
+    const frameThickness = lineThickness * 1.8;
+    const frameHeight = 0.028;
+    const outer = playableSize + this.spacing * 0.16;
     const frameLongGeometry = new THREE.BoxGeometry(outer, frameHeight, frameThickness);
     const frameShortGeometry = new THREE.BoxGeometry(frameThickness, frameHeight, outer);
     const frameMaterial = new THREE.MeshStandardMaterial({
-      color: this.theme.accent,
-      emissive: this.theme.accent,
-      emissiveIntensity: 0.08,
-      roughness: 0.35,
-      metalness: 0.35,
+      color: this.theme.boardLine,
+      roughness: 0.55,
+      metalness: 0.05,
     });
     const frameOffset = outer * 0.5;
     const frameY = this.boardTopY + frameHeight * 0.5 + 0.006;
@@ -1141,13 +1164,12 @@ class PrismOmok3D {
     }
 
     const starPoints = this.boardSize === 19 ? [3, 9, 15] : this.boardSize === 15 ? [3, 7, 11] : [3, 5, 7];
-    const starGeometry = new THREE.CylinderGeometry(lineThickness * 1.3, lineThickness * 1.3, 0.06, 24);
+    const starGeometry = new THREE.CylinderGeometry(lineThickness * 1.9, lineThickness * 1.9, 0.034, 24);
     for (const gx of starPoints) {
       for (const gy of starPoints) {
-        const star = new THREE.Mesh(starGeometry, accentMaterial);
+        const star = new THREE.Mesh(starGeometry, starMaterial);
         const world = this.gridToWorld(gx, gy);
-        star.position.set(world.x, this.boardTopY + 0.038, world.z);
-        star.castShadow = true;
+        star.position.set(world.x, this.boardTopY + 0.022, world.z);
         this.boardGroup.add(star);
       }
     }
@@ -1873,8 +1895,6 @@ class PrismOmok3D {
     requestAnimationFrame(() => this.animate());
     const delta = Math.min(0.05, this.clock.getDelta());
 
-    this.controls.autoRotate = this.settings.autoRotate && !this.isReplay;
-    this.controls.autoRotateSpeed = 0.08;
     this.controls.update();
     this.updateHover();
     this.tickClocks(delta);
