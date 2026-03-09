@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prism Omok 3D</title>
+    <meta
+      name="description"
+      content="화려한 연출과 3D 보드, AI, 리플레이, 힌트, 타이머를 갖춘 오목 게임"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js"
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CINEMATIC GOMOKU EXPERIENCE</p>
+          <h1>Prism Omok 3D</h1>
+        </div>
+        <div class="topbar-actions">
+          <button id="camera-button" class="ghost-button">카메라 전환</button>
+          <button id="sound-button" class="ghost-button">사운드 ON</button>
+          <button id="help-button" class="ghost-button">도움말</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="panel">
+          <section class="panel-section">
+            <div class="section-head">
+              <span>Match</span>
+              <strong id="mode-pill">PVP</strong>
+            </div>
+            <div class="status-card accent">
+              <p class="label">현재 상태</p>
+              <h2 id="status-text">시작 준비</h2>
+              <p id="substatus-text" class="muted">
+                화려한 3D 보드에서 첫 수를 놓아보세요.
+              </p>
+            </div>
+            <div class="player-grid">
+              <article id="black-card" class="player-card active">
+                <div class="player-dot black"></div>
+                <div>
+                  <p class="label">흑</p>
+                  <strong id="black-label">Player 1</strong>
+                </div>
+                <span id="black-timer" class="timer-chip">무제한</span>
+              </article>
+              <article id="white-card" class="player-card">
+                <div class="player-dot white"></div>
+                <div>
+                  <p class="label">백</p>
+                  <strong id="white-label">Player 2</strong>
+                </div>
+                <span id="white-timer" class="timer-chip">무제한</span>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-head">
+              <span>Controls</span>
+              <strong>Shortcuts</strong>
+            </div>
+            <div class="button-grid">
+              <button id="new-game-button" class="action-button primary">새 게임</button>
+              <button id="undo-button" class="action-button">되돌리기</button>
+              <button id="redo-button" class="action-button">다시 실행</button>
+              <button id="hint-button" class="action-button">힌트</button>
+              <button id="replay-button" class="action-button">리플레이</button>
+              <button id="swap-button" class="action-button">진영 전환</button>
+            </div>
+            <div class="shortcut-list">
+              <span>`N` 새 게임</span>
+              <span>`Z` 되돌리기</span>
+              <span>`Y` 다시 실행</span>
+              <span>`H` 힌트</span>
+              <span>`R` 리플레이</span>
+              <span>`C` 카메라</span>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-head">
+              <span>Settings</span>
+              <strong>Live</strong>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>모드</span>
+                <select id="mode-select">
+                  <option value="pvp">로컬 2인</option>
+                  <option value="ai">AI 대전</option>
+                </select>
+              </label>
+              <label>
+                <span>AI 진영</span>
+                <select id="ai-side-select">
+                  <option value="-1">백</option>
+                  <option value="1">흑</option>
+                </select>
+              </label>
+              <label>
+                <span>난이도</span>
+                <select id="difficulty-select">
+                  <option value="easy">Easy</option>
+                  <option value="normal">Normal</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+              <label>
+                <span>보드 크기</span>
+                <select id="board-size-select">
+                  <option value="11">11 x 11</option>
+                  <option value="15">15 x 15</option>
+                  <option value="19">19 x 19</option>
+                </select>
+              </label>
+              <label>
+                <span>승리 규칙</span>
+                <select id="rule-select">
+                  <option value="freestyle">5개 이상</option>
+                  <option value="exact">정확히 5개</option>
+                </select>
+              </label>
+              <label>
+                <span>타이머</span>
+                <select id="time-select">
+                  <option value="0">무제한</option>
+                  <option value="180">3분</option>
+                  <option value="300">5분</option>
+                  <option value="600">10분</option>
+                </select>
+              </label>
+              <label>
+                <span>테마</span>
+                <select id="theme-select">
+                  <option value="aurora">Aurora</option>
+                  <option value="ember">Ember</option>
+                  <option value="abyss">Abyss</option>
+                </select>
+              </label>
+              <label class="toggle-field">
+                <span>오토 회전</span>
+                <input id="autorotate-toggle" type="checkbox" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-head">
+              <span>Stats</span>
+              <strong>Persistent</strong>
+            </div>
+            <div class="stat-grid">
+              <article class="stat-tile">
+                <span>전체 경기</span>
+                <strong id="games-stat">0</strong>
+              </article>
+              <article class="stat-tile">
+                <span>흑 승리</span>
+                <strong id="black-stat">0</strong>
+              </article>
+              <article class="stat-tile">
+                <span>백 승리</span>
+                <strong id="white-stat">0</strong>
+              </article>
+              <article class="stat-tile">
+                <span>AI 승리</span>
+                <strong id="ai-stat">0</strong>
+              </article>
+            </div>
+          </section>
+        </aside>
+
+        <section class="stage-panel">
+          <div class="stage-decoration deco-a"></div>
+          <div class="stage-decoration deco-b"></div>
+          <div id="scene-container" class="scene-container"></div>
+
+          <div class="floating-hud top-left">
+            <p class="label">Board</p>
+            <strong id="board-label">15 x 15</strong>
+            <span id="turn-chip" class="turn-chip black-turn">흑 차례</span>
+          </div>
+
+          <div class="floating-hud bottom-left">
+            <p class="label">Hint</p>
+            <strong id="hint-text">아직 힌트가 없습니다.</strong>
+          </div>
+
+          <div class="floating-hud bottom-right">
+            <p class="label">Camera</p>
+            <strong id="camera-label">Perspective</strong>
+          </div>
+
+          <div id="toast-stack" class="toast-stack"></div>
+
+          <div id="intro-overlay" class="overlay-card">
+            <p class="eyebrow">PLAY IN 3D</p>
+            <h2>빛, 파티클, AI, 리플레이까지 전부 담았습니다.</h2>
+            <p>
+              회전 가능한 3D 보드, 실시간 힌트, 난이도별 AI, 자동 저장, 타이머,
+              승리 연출, 테마 전환을 모두 바로 사용할 수 있습니다.
+            </p>
+            <div class="overlay-actions">
+              <button data-start-mode="ai" class="action-button primary">AI 대전 시작</button>
+              <button data-start-mode="pvp" class="action-button">2인 대전 시작</button>
+            </div>
+          </div>
+
+          <div id="help-modal" class="modal hidden">
+            <div class="modal-card">
+              <div class="section-head">
+                <span>Help</span>
+                <button id="close-help-button" class="ghost-button">닫기</button>
+              </div>
+              <h3>기능 요약</h3>
+              <ul class="help-list">
+                <li>마우스 드래그로 카메라 회전, 휠로 확대/축소</li>
+                <li>보드 위에 마우스를 올리면 착수 위치를 미리 볼 수 있습니다.</li>
+                <li>AI 대전, 난이도, 보드 크기, 정확히 5 규칙을 실시간으로 전환할 수 있습니다.</li>
+                <li>리플레이 버튼으로 전체 수순을 다시 재생합니다.</li>
+                <li>모든 설정과 전적, 진행 중 경기 상태를 자동 저장합니다.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <section class="panel-section">
+            <div class="section-head">
+              <span>History</span>
+              <strong id="move-count-label">0 수</strong>
+            </div>
+            <div id="move-list" class="move-list"></div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-head">
+              <span>Telemetry</span>
+              <strong>Realtime</strong>
+            </div>
+            <div class="telemetry-grid">
+              <article class="telemetry-card">
+                <span>최근 수</span>
+                <strong id="last-move-text">-</strong>
+              </article>
+              <article class="telemetry-card">
+                <span>승리 라인</span>
+                <strong id="victory-text">대기 중</strong>
+              </article>
+              <article class="telemetry-card">
+                <span>AI 상태</span>
+                <strong id="ai-text">비활성</strong>
+              </article>
+              <article class="telemetry-card">
+                <span>저장 상태</span>
+                <strong id="save-text">자동 저장</strong>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
